@@ -1,9 +1,8 @@
 package project.enumerations;
 
 public enum Remote {
-    ENROLL,
+    REFERENCE,
     CREATE,
     DESTROY,
-    UPDATE,
-    CUSTOM
+    UPDATE
 }

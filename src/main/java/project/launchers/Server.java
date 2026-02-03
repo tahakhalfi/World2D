@@ -8,10 +8,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 
 import java.net.Socket;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -24,8 +21,6 @@ public final class Server {
 
     private static final Gson GSON = new Gson();
 
-    private static boolean STATE = false;
-
     private static String ADDRESS;
     private static Integer PORT;
 
@@ -33,158 +28,176 @@ public final class Server {
 
     private static ServerSocket SOCKET;
 
-    private static LinkedList<Connection> CONNECTIONS;
+    private static HashMap<UUID, Connection> CONNECTIONS;
 
     private static SManager MANAGER;
 
-    public static void main(String[] args) throws IOException {
-        initiate(String.valueOf(args[0]), Integer.valueOf(args[1]));
-    }
-
-    public static void initiate(String address, Integer port) throws IOException {
+    public static void initiate(String address, Integer port) throws Exception {
 
         ConsoleService.println("--- [SERVER] ---", ConsoleService.GREEN);
 
-        STATE = true;
+        Server.ADDRESS = address;
+        Server.PORT = port;
 
-        ADDRESS = address;
-        PORT = port;
+        Server.SOCKET = new ServerSocket();
+        Server.SOCKET.bind(new InetSocketAddress(ADDRESS, PORT));
 
-        SOCKET = new ServerSocket();
-        SOCKET.bind(new InetSocketAddress(ADDRESS, PORT));
-
-        if (!check()) {
+        if (!Server.check()) {
             return;
         }
 
-        CONNECTIONS = new LinkedList<>();
+        Server.CONNECTIONS = new HashMap<>();
 
         new Thread(() -> {
             try {
-                while (check()) {connect(SOCKET.accept());}
+                while (Server.check()) {Server.connect(SOCKET.accept());}
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }).start();
 
-        MANAGER = new SManager();
-        MANAGER.config();
+        Server.MANAGER = new SManager();
+        Server.MANAGER.config();
 
-    }
-
-    public static boolean is() {
-        return STATE && check();
     }
 
     private static boolean check() {
-        return SOCKET != null && !SOCKET.isClosed();
+        return Server.SOCKET != null && !Server.SOCKET.isClosed();
     }
 
     public static SManager getManager() {
-        return MANAGER;
+        return Server.MANAGER;
     }
 
-    private static void connect(Socket socket) throws IOException {
+    private static void connect(Socket socket) throws Exception {
 
         Connection connection = new Connection(socket);
 
-        if (!connection.read().equals(TOKEN)) {
+        if (!connection.read().equals(Server.TOKEN)) {
 
             connection.close();
 
         } else {
 
-            int identification = CONNECTIONS.size();
+            connection.setReference(UUID.randomUUID());
 
-            connection.enroll(identification);
+            Server.addConnection(connection);
 
-            connection.deliver(Remote.ENROLL, new HashMap<>(Map.of(
-                    "identification", identification
+            connection.deliver(Remote.REFERENCE, new HashMap<>(Map.of(
+                    "reference", connection.getReference()
             )));
-
-            CONNECTIONS.add(connection);
 
             connection.start();
 
+            Server.MANAGER.connect(connection.getReference());
+
         }
 
+    }
+
+    private static List<Connection> getConnections() {
+        return new ArrayList<>(CONNECTIONS.values());
+    }
+
+    private static void addConnection(Connection connection) {
+        Server.CONNECTIONS.put(connection.getReference(), connection);
+    }
+
+    private static void subConnection(Connection connection) {
+        Server.CONNECTIONS.remove(connection.getReference());
+    }
+
+    private static Connection getConnection(UUID reference) {
+        return Server.CONNECTIONS.get(reference);
+    }
+
+    public static void cast(Remote remote, HashMap<String, Object> content) {
+        Server.broadcast(remote, content);
+    }
+
+    public static void cast(Set<UUID> references, Remote remote, HashMap<String, Object> content) {
+        Server.multicast(references, remote, content);
+    }
+
+    public static void cast(UUID reference, Remote remote, HashMap<String, Object> content) {
+        Server.unicast(reference, remote, content);
     }
 
     public static void broadcast(Remote remote, HashMap<String, Object> content) {
         try {
-            for (Connection connection: CONNECTIONS) {
+            for (Connection connection: Server.getConnections()) {
                 connection.deliver(remote, content);
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static void multicast(Set<Integer> identifications, Remote remote, HashMap<String, Object> content) {
-        multicastIn(identifications, remote, content);
+    public static void multicast(Set<UUID> references, Remote remote, HashMap<String, Object> content) {
+        multicastIn(references, remote, content);
     }
 
-    public static void multicastIn(Set<Integer> identifications, Remote remote, HashMap<String, Object> content) {
+    public static void multicastIn(Set<UUID> references, Remote remote, HashMap<String, Object> content) {
         try {
-            for (Connection connection: CONNECTIONS) {
-                if (identifications.contains(connection.getIdentification())) {
+            for (Connection connection: Server.getConnections()) {
+                if (references.contains(connection.getReference())) {
                     connection.deliver(remote, content);
                 }
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static void multicastOut(Set<Integer> identifications, Remote remote, HashMap<String, Object> content) {
+    public static void multicastOut(Set<UUID> references, Remote remote, HashMap<String, Object> content) {
         try {
-            for (Connection connection: CONNECTIONS) {
-                if (!identifications.contains(connection.getIdentification())) {
+            for (Connection connection: Server.getConnections()) {
+                if (!references.contains(connection.getReference())) {
                     connection.deliver(remote, content);
                 }
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static void unicast(Integer identification, Remote remote, HashMap<String, Object> content) {
-        unicastIn(identification, remote, content);
+    public static void unicast(UUID reference, Remote remote, HashMap<String, Object> content) {
+        unicastIn(reference, remote, content);
     }
 
-    public static void unicastIn(Integer identification, Remote remote, HashMap<String, Object> content) {
+    public static void unicastIn(UUID reference, Remote remote, HashMap<String, Object> content) {
         try {
-            for (Connection connection: CONNECTIONS) {
-                if (identification.equals(connection.getIdentification())) {
+            for (Connection connection: Server.getConnections()) {
+                if (reference.equals(connection.getReference())) {
                     connection.deliver(remote, content);
                 }
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static void unicastOut(Integer identification, Remote remote, HashMap<String, Object> content) {
+    public static void unicastOut(UUID reference, Remote remote, HashMap<String, Object> content) {
         try {
-            for (Connection connection: CONNECTIONS) {
-                if (!identification.equals(connection.getIdentification())) {
+            for (Connection connection: Server.getConnections()) {
+                if (!reference.equals(connection.getReference())) {
                     connection.deliver(remote, content);
                 }
             }
-        } catch (IOException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    public static class Connection extends Thread {
+    private static class Connection extends Thread {
 
         private Socket SOCKET;
         private DataInputStream INPUT;
         private DataOutputStream OUTPUT;
 
-        private Integer IDENTIFICATION;
+        private UUID REFERENCE;
 
-        private Connection(Socket socket) throws IOException {
+        private Connection(Socket socket) throws Exception {
 
             this.SOCKET = socket;
 
@@ -193,7 +206,7 @@ public final class Server {
 
         }
 
-        private void close() throws IOException {
+        private void close() throws Exception {
             this.SOCKET.close();
         }
 
@@ -205,30 +218,30 @@ public final class Server {
             while (check()) {
                 try {
                     this.receive();
-                } catch (IOException e) {
+                } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
             }
         }
 
-        private void enroll(int identification) {
-            this.IDENTIFICATION = identification;
+        private void setReference(UUID identifier) {
+            this.REFERENCE = identifier;
         }
 
-        public Integer getIdentification() {
-            return this.IDENTIFICATION;
+        public UUID getReference() {
+            return this.REFERENCE;
         }
 
-        private String read() throws IOException {
+        private String read() throws Exception {
             return this.INPUT.readUTF();
         }
 
-        private void write(String data) throws IOException {
+        private void write(String data) throws Exception {
             this.OUTPUT.writeUTF(data);
             this.OUTPUT.flush();
         }
 
-        private void receive() throws IOException {
+        private void receive() throws Exception {
 
             JsonObject mail = GSON.fromJson(this.read(), JsonObject.class);
 
@@ -242,11 +255,9 @@ public final class Server {
                     HashMap.class
             );
 
-
-
         }
 
-        private void deliver(Remote remote, HashMap<String, Object> content) throws IOException {
+        private void deliver(Remote remote, HashMap<String, Object> content) throws Exception {
 
             HashMap<String, Object> mail = new HashMap<>();
             mail.put("remote", remote);

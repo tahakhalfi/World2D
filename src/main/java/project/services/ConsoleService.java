@@ -9,7 +9,7 @@ public class ConsoleService {
     public static final String BLUE = "\u001B[34m";
 
     public static void println(Object subject, String color) {
-        System.out.println(color + subject.toString() + DEFAULT);
+        System.out.println(color + subject + DEFAULT);
     }
 
     public static void println(Object subject) {
@@ -17,7 +17,7 @@ public class ConsoleService {
     }
 
     public static void print(Object subject, String color) {
-        System.out.print(color + subject.toString() + DEFAULT);
+        System.out.print(color + subject + DEFAULT);
     }
 
     public static void print(Object subject) {

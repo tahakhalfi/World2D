@@ -10,7 +10,7 @@ import java.io.IOException;
 public class GNLApplication extends Application {
 
     @Override
-    public void start(Stage stage) throws IOException {
+    public void start(Stage stage) {
         Client.getManager().start(stage);
     }
 

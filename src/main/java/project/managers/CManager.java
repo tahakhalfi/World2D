@@ -4,12 +4,15 @@ import javafx.scene.Scene;
 import javafx.scene.layout.Pane;
 import javafx.stage.Stage;
 import project.GNLApplication;
+import project.hierarchies.instances.essentials.Experience;
 
 public class CManager {
 
     private Stage STAGE;
     private Scene SCENE;
     private Pane ROOT;
+
+    private Experience EXPERIENCE;
 
     public void config() {
 
@@ -51,6 +54,14 @@ public class CManager {
 
     public Pane getRoot() {
         return ROOT;
+    }
+
+    public void setExperience(Experience experience) {
+        this.EXPERIENCE = experience;
+    }
+
+    public Experience getExperience() {
+        return this.EXPERIENCE;
     }
 
 }

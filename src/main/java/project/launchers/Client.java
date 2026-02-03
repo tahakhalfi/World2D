@@ -2,7 +2,6 @@ package project.launchers;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.IOException;
 import java.net.Socket;
 import java.util.HashMap;
 import java.util.UUID;
@@ -14,13 +13,12 @@ import project.hierarchies.Instance;
 import project.managers.CManager;
 import project.enumerations.Remote;
 import project.services.ConsoleService;
-import project.services.ReplicationService;
+import project.services.ReplicateService;
+import project.utilities.formating.Bundlure;
 
-public class Client {
+public final class Client {
 
     private static final Gson GSON = new Gson();
-
-    private static boolean STATE = false;
 
     private static String ADDRESS;
     private static Integer PORT;
@@ -29,56 +27,46 @@ public class Client {
     private static DataInputStream INPUT;
     private static DataOutputStream OUTPUT;
 
-    private static Integer IDENTIFICATION;
+    private static UUID REFERENCE;
 
     private static CManager MANAGER;
 
-    public static void main(String[] args) throws IOException, ClassNotFoundException {
-        initiate(String.valueOf(args[0]), Integer.valueOf(args[1]), String.valueOf(args[2]));
-    }
-
-    public static void initiate(String address, Integer port, String token) throws IOException, ClassNotFoundException {
+    public static void initiate(String address, Integer port, String token) throws Exception {
 
         ConsoleService.println("--- [CLIENT] ---", ConsoleService.BLUE);
 
-        STATE = true;
+        Client.ADDRESS = address;
+        Client.PORT = port;
 
-        ADDRESS = address;
-        PORT = port;
-
-        SOCKET = new Socket(
+        Client.SOCKET = new Socket(
                 ADDRESS,
                 PORT
         );
 
-        if (!check()) {
+        if (!Client.check()) {
             return;
         }
 
-        INPUT = new DataInputStream(SOCKET.getInputStream());
-        OUTPUT = new DataOutputStream(SOCKET.getOutputStream());
+        Client.INPUT = new DataInputStream(SOCKET.getInputStream());
+        Client.OUTPUT = new DataOutputStream(SOCKET.getOutputStream());
 
-        write(token);
+        Client.write(token);
 
-        if (!check()) {
+        if (!Client.check()) {
             return;
         }
 
         new Thread(() -> {
             try {
-                while (check()) {receive();}
+                while (Client.check()) {Client.receive();}
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         }).start();
 
-        MANAGER = new CManager();
-        MANAGER.config();
+        Client.MANAGER = new CManager();
+        Client.MANAGER.config();
 
-    }
-
-    public static boolean is() {
-        return STATE && check();
     }
 
     private static boolean check() {
@@ -93,32 +81,32 @@ public class Client {
         return PORT;
     }
 
-    private static void enroll(int identification) {
-        IDENTIFICATION = identification;
+    private static void setReference(UUID reference) {
+        Client.REFERENCE = reference;
     }
 
-    public static Integer getIdentification() {
-        return IDENTIFICATION;
+    public static UUID getReference() {
+        return Client.REFERENCE;
     }
 
     public static CManager getManager() {
         return MANAGER;
     }
 
-    public static void broadcast(Remote remote, HashMap<String, Object> content) throws IOException {
+    public static void broadcast(Remote remote, HashMap<String, Object> content) throws Exception {
         deliver(remote, content);
     }
 
-    private static String read() throws IOException {
+    private static String read() throws Exception {
         return INPUT.readUTF();
     }
 
-    private static void write(String data) throws IOException {
+    private static void write(String data) throws Exception {
         OUTPUT.writeUTF(data);
         OUTPUT.flush();
     }
 
-    private static void receive() throws IOException, ClassNotFoundException {
+    private static void receive() throws Exception {
 
         JsonObject mail = GSON.fromJson(read(), JsonObject.class);
 
@@ -134,24 +122,24 @@ public class Client {
 
         switch (remote) {
 
-            case Remote.ENROLL -> enroll(
-                    content.get("identification").getAsInt()
+            case Remote.REFERENCE -> Client.setReference(
+                    UUID.fromString(content.get("reference").getAsString())
             );
 
-            case Remote.CREATE -> ReplicationService.replicateCreation(
-                    UUID.fromString(content.get("identification").getAsString()),
-                    Class.forName(content.get("clazz").getAsString()).asSubclass(Instance.class)
+            case Remote.CREATE -> ReplicateService.Output.create(
+                    Bundlure.object(content.get("directory").getAsString(), String.class),
+                    Bundlure.object(content.get("identifier").getAsString(), UUID.class)
             );
 
-            case Remote.DESTROY -> {}
-            case Remote.UPDATE -> {}
-            case Remote.CUSTOM -> {}
+            case Remote.DESTROY -> ReplicateService.Output.destroy(
+                    Bundlure.object(content.get("instance").getAsString(), Instance.class)
+            );
 
         }
 
     }
 
-    private static void deliver(Remote remote, HashMap<String, Object> content) throws IOException {
+    private static void deliver(Remote remote, HashMap<String, Object> content) throws Exception {
 
         HashMap<String, Object> mail = new HashMap<>();
         mail.put("remote", remote);

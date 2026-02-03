@@ -1,125 +1,142 @@
 package project.hierarchies;
 
-import project.services.ReplicationService;
+import project.services.ReplicateService;
+import project.utilities.formating.Bundlure;
+import project.utilities.formating.Signature;
+import project.utilities.signaling.Event;
 
-import java.util.*;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Consumer;
 
-public class Instance {
+public abstract class Instance {
 
     private static final Map<UUID, Instance> INSTANCES = new HashMap<>();
 
-    private final UUID identification;
+    private static final Event<Consumer<Instance>> instanceCreatedEvent = new Event<>();
+    private static final Event<Consumer<Instance>> instanceDestroyedEvent = new Event<>();
 
-    private Instance parent;
-    private final List<Instance> children = new LinkedList<>();
+    // CLASS FUNCTIONS
 
-    private String name;
-
-    private static void add(UUID identification, Instance instance) {
-        INSTANCES.put(identification, instance);
+    private static void insert(UUID identifier, Instance instance) {
+        instance.setIdentifier(identifier);
+        Instance.INSTANCES.put(identifier, instance);
     }
 
-    private static void sub(UUID identification) {
-        INSTANCES.remove(identification);
+    private static void insert(Instance instance) {
+        Instance.insert(UUID.randomUUID(), instance);
     }
 
-    private static void sub(Instance instance) {
-        sub(instance.getIdentification());
+    private static void extract(UUID identifier, Instance instance) {
+        instance.setIdentifier(null);
+        Instance.INSTANCES.remove(identifier);
     }
 
-    public static Instance get(UUID identification) {
-        return INSTANCES.get(identification);
+    private static void extract(Instance instance) {
+        Instance.extract(instance.getIdentifier(), instance);
     }
 
-    public static UUID get(Instance instance) {
-        return instance.getIdentification();
+    public static Instance obtain(UUID identifier) {
+        return Instance.INSTANCES.get(identifier);
     }
 
-    public static boolean cont(UUID identification) {
-        return INSTANCES.containsKey(identification);
+    public static UUID identify(Instance instance) {
+        return (instance != null) ? instance.getIdentifier() : null;
     }
 
-    public static boolean cont(Instance instance) {
-        return cont(instance.getIdentification());
+    public static boolean check(UUID identifier) {
+        return Instance.INSTANCES.containsKey(identifier);
     }
 
-    public static <C extends Instance> C create(Class<C> clazz) {
-        return create(
-                UUID.randomUUID(),
-                clazz
-        );
+    public static boolean check(Instance instance) {
+        return Instance.check(instance.getIdentifier());
     }
 
-    public static <C extends Instance> C create(UUID identification, Class<C> clazz) {
+    public static void onInstanceCreated(Consumer<Instance> function) {
+        Instance.instanceCreatedEvent.connect(function);
+    }
 
-        if (INSTANCES.containsKey(identification)) {
+    public static void onInstanceDestroyed(Consumer<Instance> function) {
+        Instance.instanceDestroyedEvent.connect(function);
+    }
+
+    // INSTANCE FUNCTIONS
+
+    private UUID identifier;
+
+    protected Instance parent = null;
+    private final List<Instance> children = new ArrayList<>();
+
+    private final Event<Consumer<Instance>> childAddedEvent = new Event<>();
+    private final Event<Consumer<Instance>> childSubbedEvent = new Event<>();
+
+    private final Event<Consumer<Instance>> descendantAddedEvent = new Event<>();
+    private final Event<Consumer<Instance>> descendantSubbedEvent = new Event<>();
+
+    protected String name;
+
+    public Instance() {
+
+        Instance.insert(this);
+
+        this.configure();
+
+        Instance.instanceCreatedEvent.fire(f -> f.accept(this));
+
+        ReplicateService.Input.create(this);
+
+    }
+
+    public Instance(UUID identifier) {
+
+        if (INSTANCES.containsKey(identifier)) {
             throw new IllegalArgumentException(
-                    "The field 'identification' has to be unique."
+                    "The field 'identifier' has to be unique."
             );
         }
 
-        C instance = switch (clazz.getSimpleName()) {
+        Instance.insert(identifier, this);
 
-            case "Instance" -> clazz.cast(new Instance(identification));
+        this.configure();
 
-            default -> throw new IllegalArgumentException(
-                    "The field 'clazz' has to be or extend the Instance class."
-            );
+        Instance.instanceCreatedEvent.fire(f -> f.accept(this));
 
-        };
-
-        Instance.add(
-                identification,
-                instance
-        );
-
-        ReplicationService.configurateCreation(
-                identification,
-                clazz
-        );
-
-        return instance;
+        ReplicateService.Input.create(this);
 
     }
 
-    private static void destroy(Instance instance) {
-
-        for (Instance child: instance.children) {
-            destroy(child);
-        }
-
-        instance.subParent();
-        instance.children.clear();
-
-        UUID identification = instance.getIdentification();
-
-        Instance.sub(
-                identification
-        );
-
-        ReplicationService.configurateDestruction(
-                identification
-        );
-
+    protected void configure() {
+        this.name = this.getVariety();
     }
 
-    private static void destroy(UUID identification) {
-        Instance instance = Instance.get(identification);
-        if (instance != null) {
-            Instance.destroy(instance);
-        }
-    }
-
-    private Instance(UUID identification) {
-        this.identification = identification;
-    }
+    protected abstract Instance duplicate();
 
     public void destroy() {
-        Instance.destroy(this);
+
+        for (Instance child: this.getChildren()) {
+            child.destroy();
+        }
+
+        this.subParent();
+        this.children.clear();
+
+        Instance.extract(this);
+
+        Instance.instanceDestroyedEvent.fire(f -> f.accept(this));
+
+        ReplicateService.Input.destroy(this);
+
     }
 
-    public UUID getIdentification() {
-        return this.identification;
+    private void setIdentifier(UUID identifier) {
+        this.identifier = identifier;
+    }
+
+    public UUID getIdentifier() {
+        return this.identifier;
     }
 
     public void setParent(Instance parent) {
@@ -127,17 +144,20 @@ public class Instance {
         this.addParent(parent);
     }
 
-    private void addParent(Instance parent) {
+    protected void addParent(Instance parent) {
         if (parent != null) {
             this.parent = parent;
-            this.parent.addChild(this);
+            parent.addChild(this);
+            parent.addDescendant(this);
         }
     }
 
-    private void subParent() {
-        if (this.parent != null) {
-            this.parent.subChild(this);
+    protected void subParent() {
+        Instance parent = this.parent;
+        if (parent != null) {
             this.parent = null;
+            parent.subChild(this);
+            parent.subDescendant(this);
         }
     }
 
@@ -145,27 +165,109 @@ public class Instance {
         return this.parent;
     }
 
-    public <C> C getParent(Class<C> clazz) {
+    public <I> I getParent(Class<I> clazz) {
         if (clazz.isInstance(this.parent)) {
             return clazz.cast(this.parent);
         }
         return null;
     }
 
-    private void addChild(Instance child) {
-        this.children.add(child);
+    public boolean isParent(Instance child) {
+        return child.parent == this;
     }
 
-    private void subChild(Instance child) {
+    public List<Instance> getAncenstors() {
+        List<Instance> list = new ArrayList<>();
+        Instance ancestor = this.getParent();
+        while (ancestor != null) {
+            list.add(ancestor);
+            ancestor = ancestor.parent;
+        }
+        return list;
+    }
+
+    public <I> List<I> getAncenstors(Class<I> clazz) {
+        List<I> list = new ArrayList<>();
+        Instance ancestor = this.getParent();
+        while (ancestor != null) {
+            if (clazz.isInstance(ancestor)) {
+                list.add(clazz.cast(ancestor));
+            }
+            ancestor = ancestor.parent;
+        }
+        return list;
+    }
+
+    public boolean isAncestor(Instance descendant) {
+        if (this.isParent(descendant)) {
+            return true;
+        } else if (descendant.parent != null) {
+            return this.isDescendant(descendant.parent);
+        } else {
+            return false;
+        }
+    }
+
+    protected void addChild(Instance child) {
+        this.children.add(child);
+        this.childAddedEvent.fire(f -> f.accept(child));
+    }
+
+    protected void subChild(Instance child) {
         this.children.remove(child);
+        this.childSubbedEvent.fire(f -> f.accept(child));
+    }
+
+    public boolean isChild(Instance parent) {
+        return parent == this.parent;
+    }
+
+    private void addDescendant(Instance descendant) {
+        this.descendantAddedEvent.fire(f -> f.accept(descendant));
+        if (this.parent != null) {
+            this.parent.addDescendant(descendant);
+        }
+    }
+
+    private void subDescendant(Instance descendant) {
+        this.descendantSubbedEvent.fire(f -> f.accept(descendant));
+        if (this.parent != null) {
+            this.parent.subDescendant(descendant);
+        }
+    }
+
+    public boolean isDescendant(Instance ancestor) {
+        if (this.isChild(ancestor)) {
+            return true;
+        } else if (this.parent != null) {
+            return this.parent.isDescendant(ancestor);
+        } else {
+            return false;
+        }
+    }
+
+    public void onChildAdded(Consumer<Instance> function) {
+        this.childAddedEvent.connect(function);
+    }
+
+    public void onChildSubbed(Consumer<Instance> function) {
+        this.childSubbedEvent.connect(function);
+    }
+
+    public void onDescendantAdded(Consumer<Instance> function) {
+        this.descendantAddedEvent.connect(function);
+    }
+
+    public void onDescendantSubbed(Consumer<Instance> function) {
+        this.descendantSubbedEvent.connect(function);
     }
 
     public List<Instance> getChildren() {
         return new ArrayList<>(this.children);
     }
 
-    public <C> List<C> getChildren(Class<C> clazz) {
-        List<C> children = new ArrayList<>();
+    public <I> List<I> getChildren(Class<I> clazz) {
+        List<I> children = new ArrayList<>();
         for (Instance child: this.children) {
             if (clazz.isInstance(child)) {
                 children.add(clazz.cast(child));
@@ -183,7 +285,7 @@ public class Instance {
         return null;
     }
 
-    public <C> C findChild(Class<C> clazz, String name) {
+    public <I> I findChild(String name, Class<I> clazz) {
         for (Instance child: this.children) {
             if (clazz.isInstance(child) && child.getName().equals(name)) {
                 return clazz.cast(child);
@@ -201,8 +303,8 @@ public class Instance {
         return descendants;
     }
 
-    public <C> List<C> getDescendants(Class<C> clazz) {
-        List<C> descendants = new ArrayList<>();
+    public <I> List<I> getDescendants(Class<I> clazz) {
+        List<I> descendants = new ArrayList<>();
         for (Instance child: this.children) {
             if (clazz.isInstance(child)) {
                 descendants.add(clazz.cast(child));
@@ -221,7 +323,7 @@ public class Instance {
         return null;
     }
 
-    public <C> C findDescendant(Class<C> clazz, String name) {
+    public <I> I findDescendant(String name, Class<I> clazz) {
         for (Instance child: this.getDescendants()) {
             if (clazz.isInstance(child) && child.getName().equals(name)) {
                 return clazz.cast(child);
@@ -238,8 +340,27 @@ public class Instance {
         return this.name;
     }
 
+    public String getVariety() {
+        return this.getClass().getSimpleName();
+    }
+
+    public HashMap<String, Object> getDigitaly() {
+        HashMap<String, Object> digitaly = new HashMap<>();
+        digitaly.put("parent", this.getParent());
+        digitaly.put("name", this.getName());
+        return digitaly;
+    }
+
+    public Signature getSignature() {
+        return new Signature(this);
+    }
+
+    public Bundlure getBundlure() {
+        return new Bundlure(this);
+    }
+
     public String toString() {
-        return "[" + this.identification + "] : " + this.name;
+        return this.name;
     }
 
 }
